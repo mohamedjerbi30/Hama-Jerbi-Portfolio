@@ -40,54 +40,52 @@ int main(void)
 /*ex2*/
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
 
 #define MAX 256
 
-void creer_fils(int numero, int n, char *chaine, pid_t pid_expediteur)
+/* Structure envoyée dans le tube */
+typedef struct {
+    pid_t pid;
+    char  chaine[MAX];
+} Message;
+
+void creer_fils(int numero, int n, Message msg)
 {
-    /* Cas de base : on a créé tous les fils */
     if(numero > n) return;
 
     int tube[2];
     pipe(tube);
 
-    if(fork() == 0) /* ===== FILS numero ===== */
+    if(fork() == 0) /* ===== FILS ===== */
     {
-        char buffer[MAX];
-        pid_t expediteur;
-
-        /* Lire la chaine depuis le père */
+        Message recu;
         close(tube[1]);
-        read(tube[0], &expediteur, sizeof(pid_t));
-        read(tube[0], buffer, MAX);
+        read(tube[0], &recu, sizeof(Message));
         close(tube[0]);
 
-        /* Afficher */
         if(numero == 1)
             printf("[FILS %d | pid=%d] Recu \"%s\" du PERE (pid=%d)\n",
-                    numero, getpid(), buffer, expediteur);
+                    numero, getpid(), recu.chaine, recu.pid);
         else
             printf("[FILS %d | pid=%d] Recu \"%s\" du fils %d (pid=%d)\n",
-                    numero, getpid(), buffer, numero-1, expediteur);
+                    numero, getpid(), recu.chaine, numero-1, recu.pid);
 
-        /* Créer le fils suivant et lui envoyer la chaine */
-        creer_fils(numero + 1, n, buffer, getpid());
+        /* Préparer le message pour le fils suivant */
+        Message suivant;
+        suivant.pid = getpid();
+        strcpy(suivant.chaine, recu.chaine);
 
+        creer_fils(numero + 1, n, suivant);
         exit(0);
     }
-    else /* ===== PÈRE ou FILS qui envoie ===== */
+    else /* ===== PÈRE / FILS QUI ENVOIE ===== */
     {
-        /* Envoyer la chaine au fils qu'on vient de créer */
-        pid_t moi = getpid();
         close(tube[0]);
-        write(tube[1], &moi,   sizeof(pid_t));
-        write(tube[1], chaine, MAX);
+        write(tube[1], &msg, sizeof(Message));
         close(tube[1]);
-
-        wait(NULL); /* Attendre le fils qu'on vient de créer */
+        wait(NULL);
     }
 }
 
@@ -95,12 +93,13 @@ int main(int argc, char *argv[])
 {
     if(argc != 3) { fprintf(stderr,"Usage: %s <n> <chaine>\n", argv[0]); return 1; }
 
-    int n        = atoi(argv[1]);
-    char *chaine = argv[2];
+    Message msg;
+    msg.pid = getpid();
+    strcpy(msg.chaine, argv[2]);
 
-    printf("[PERE | pid=%d] J'envoie \"%s\"\n\n", getpid(), chaine);
+    printf("[PERE | pid=%d] J'envoie \"%s\"\n\n", getpid(), argv[2]);
 
-    creer_fils(1, n, chaine, getpid());
+    creer_fils(1, atoi(argv[1]), msg);
 
     printf("\n[PERE] Fin.\n");
     return 0;
